@@ -64,31 +64,20 @@ To balance local development speed with production-grade CDN scalability, media 
 Email notifications keep residents informed of ticket progress without degrading API response times:
 
 ```mermaid
-sequenceDiagram
-    autonumber
-    actor Admin
-    participant API as FastAPI Router (/complaints/{id}/status)
-    participant DB as Database (Postgres/SQLite)
-    participant BG as BackgroundTasks Worker
-    participant Resend as Resend HTTPS API (Port 443)
-    participant SMTP as SMTP Fallback (Port 587)
-    participant Resident as Resident Mailbox
+flowchart TD
+    Admin([Admin User]) -->|PATCH /complaints/:id/status| API["FastAPI Router (/complaints)"]
+    API -->|1. Commit Status & History Log| DB[(Database / Postgres)]
+    API -->|2. Enqueue Email Task| BG[FastAPI BackgroundTasks]
+    API -.->|Immediate HTTP 200 OK (<50ms)| Admin
 
-    Admin->>API: PATCH /complaints/{id}/status (status="In Progress")
-    API->>DB: Commit status change & record history log
-    API->>BG: Enqueue send_complaint_status_email()
-    API-->>Admin: Return 200 OK (<50ms response)
-    
-    rect rgb(240, 248, 255)
-        Note over BG,Resident: Asynchronous Execution
-        alt Resend API Configured
-            BG->>Resend: POST https://api.resend.com/emails
-            Resend-->>Resident: Deliver Email Notification
-        else Standard SMTP Fallback
-            BG->>SMTP: STARTTLS + Send Email
-            SMTP-->>Resident: Deliver Email Notification
-        end
-        BG->>DB: Write dispatch status to email_logs table
+    subgraph AsyncEngine ["⚡ Async Notification Engine (Background Worker)"]
+        BG --> Choice{Resend API Key Configured?}
+        Choice -->|Yes (Primary)| Resend["Resend HTTPS API (Port 443)"]
+        Choice -->|No / Fallback| SMTP["Standard SMTP (Port 587 / STARTTLS)"]
+        Resend -->|Deliver Email| Resident([Resident Mailbox])
+        SMTP -->|Deliver Email| Resident
+        Resend -->|Log Attempt| Log[(email_logs Table)]
+        SMTP -->|Log Attempt| Log
     end
 ```
 
