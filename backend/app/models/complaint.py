@@ -88,7 +88,7 @@ class Complaint(Base):
         if created.tzinfo is None:
             created = created.replace(tzinfo=timezone.utc)
         now = datetime.now(timezone.utc)
-        return (now - created).total_seconds() > (threshold_days * 86400)
+        return (now - created).total_seconds() >= (threshold_days * 86400)
 
 
 

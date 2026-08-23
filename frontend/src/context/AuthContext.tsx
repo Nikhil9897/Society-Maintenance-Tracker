@@ -6,7 +6,9 @@ interface AuthContextType {
   user: User | null;
   token: string | null;
   isLoading: boolean;
-  login: (token: string, userData?: User) => Promise<void>;
+  // Accepts email+password directly — wraps the API internally
+  login: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string, name: string, flat_number?: string, role?: string) => Promise<void>;
   logout: () => void;
   refreshUser: () => Promise<void>;
 }
@@ -18,9 +20,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const saved = localStorage.getItem('society_user');
     return saved ? JSON.parse(saved) : null;
   });
-  const [token, setToken] = useState<string | null>(() => {
-    return localStorage.getItem('society_token');
-  });
+  const [token, setToken] = useState<string | null>(() => localStorage.getItem('society_token'));
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   const refreshUser = async () => {
@@ -34,7 +34,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   useEffect(() => {
-    const initAuth = async () => {
+    const init = async () => {
       const storedToken = localStorage.getItem('society_token');
       if (storedToken) {
         setToken(storedToken);
@@ -48,26 +48,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       setIsLoading(false);
     };
-
-    initAuth();
+    init();
   }, []);
 
-  const login = async (newToken: string, userData?: User) => {
-    setToken(newToken);
-    localStorage.setItem('society_token', newToken);
+  const login = async (email: string, password: string) => {
+    const { access_token } = await authApi.login(email, password);
+    setToken(access_token);
+    localStorage.setItem('society_token', access_token);
+    const currentUser = await authApi.getMe();
+    setUser(currentUser);
+    localStorage.setItem('society_user', JSON.stringify(currentUser));
+  };
 
-    if (userData) {
-      setUser(userData);
-      localStorage.setItem('society_user', JSON.stringify(userData));
-    } else {
-      try {
-        const currentUser = await authApi.getMe();
-        setUser(currentUser);
-        localStorage.setItem('society_user', JSON.stringify(currentUser));
-      } catch (err) {
-        console.error('Failed to fetch user profile:', err);
-      }
-    }
+  const register = async (
+    email: string,
+    password: string,
+    name: string,
+    flat_number?: string,
+    role: string = 'resident'
+  ) => {
+    await authApi.register({ email, password, name, role, flat_number });
+    // Auto-login after register
+    await login(email, password);
   };
 
   const logout = () => {
@@ -78,16 +80,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, login, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, token, isLoading, login, register, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );
 };
 
 export const useAuth = (): AuthContextType => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
+  return ctx;
 };

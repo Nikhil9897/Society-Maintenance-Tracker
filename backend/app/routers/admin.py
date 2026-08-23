@@ -86,7 +86,7 @@ def get_admin_dashboard(
         db.query(func.count(Complaint.id))
         .filter(
             Complaint.status != ComplaintStatus.RESOLVED,
-            Complaint.created_at < cutoff,
+            Complaint.created_at <= cutoff,
         )
         .scalar()
         or 0
@@ -133,7 +133,7 @@ def get_admin_complaints(
     # 3. Newest first (created_at desc)
     cutoff = datetime.now(timezone.utc) - timedelta(days=threshold_days)
     is_overdue_expr = case(
-        (and_(Complaint.status != ComplaintStatus.RESOLVED, Complaint.created_at < cutoff), 0),
+        (and_(Complaint.status != ComplaintStatus.RESOLVED, Complaint.created_at <= cutoff), 0),
         else_=1,
     )
     priority_expr = case(

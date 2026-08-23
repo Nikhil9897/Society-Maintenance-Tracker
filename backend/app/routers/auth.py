@@ -21,6 +21,15 @@ def register_user(user_in: UserCreate, db: Session = Depends(get_db)):
             detail="Email is already registered",
         )
 
+    # Enforce: Only ONE administrator account can exist in the system
+    if user_in.role == UserRole.ADMIN or str(user_in.role).lower() in ("admin", "userrole.admin"):
+        existing_admin = db.query(User).filter(User.role == UserRole.ADMIN).first()
+        if existing_admin:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="An administrator account already exists. Only one admin is allowed for the society.",
+            )
+
     hashed_password = get_password_hash(user_in.password)
     user = User(
         name=user_in.name,

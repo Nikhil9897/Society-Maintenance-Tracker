@@ -47,8 +47,17 @@ export const authApi = {
     const res = await client.post('/auth/login', { email, password });
     return res.data;
   },
-  register: async (data: { email: string; password: string; name: string; role: string }): Promise<User> => {
-    const res = await client.post('/auth/register', data);
+  register: async (data: {
+    email: string; password: string; name: string; role: string; flat_no?: string; flat_number?: string;
+  }): Promise<User> => {
+    const payload = {
+      email: data.email,
+      password: data.password,
+      name: data.name,
+      role: data.role,
+      flat_no: data.flat_no || data.flat_number || undefined,
+    };
+    const res = await client.post('/auth/register', payload);
     return res.data;
   },
   getMe: async (): Promise<User> => {

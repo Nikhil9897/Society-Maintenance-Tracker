@@ -69,7 +69,8 @@ async def upload_image(file: UploadFile) -> str:
             import cloudinary
             import cloudinary.uploader
 
-            cloudinary.config(cloudinary_url=settings.CLOUDINARY_URL)
+            os.environ["CLOUDINARY_URL"] = settings.CLOUDINARY_URL
+            cloudinary.reset_config()
             response = cloudinary.uploader.upload(
                 contents,
                 folder="society_complaints",

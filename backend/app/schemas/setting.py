@@ -6,4 +6,4 @@ class AdminSettingsOut(BaseModel):
 
 
 class AdminSettingsUpdate(BaseModel):
-    overdue_threshold_days: int = Field(..., ge=1, le=365, description="Overdue threshold in days (1-365)")
+    overdue_threshold_days: int = Field(..., ge=0, le=365, description="Overdue threshold in days (0-365)")

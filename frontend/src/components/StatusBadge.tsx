@@ -3,29 +3,31 @@ import { ComplaintStatus } from '../types';
 import { Clock, AlertTriangle, CheckCircle2, AlertCircle } from 'lucide-react';
 
 interface StatusBadgeProps {
-  status: ComplaintStatus;
+  status: ComplaintStatus | string;
   isOverdue?: boolean;
   size?: 'sm' | 'md';
 }
 
 export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, isOverdue = false, size = 'md' }) => {
-  const sizeClasses = size === 'sm' ? 'px-2 py-0.5 text-xs' : 'px-2.5 py-1 text-xs font-medium';
+  const sizeClasses = size === 'sm' ? 'px-2 py-0.5 text-[10px]' : 'px-2.5 py-1 text-xs';
+
+  const normalized = typeof status === 'string' ? status.toLowerCase().replace('_', ' ') : status;
 
   const getStatusConfig = () => {
-    switch (status) {
-      case 'Open':
+    switch (normalized) {
+      case 'open':
         return {
-          bg: 'bg-slate-500/10 border-slate-500/30 text-slate-300',
+          bg: 'bg-amber-500/10 border-amber-500/30 text-amber-400',
           icon: Clock,
           label: 'Open',
         };
-      case 'In Progress':
+      case 'in progress':
         return {
-          bg: 'bg-sky-500/10 border-sky-500/30 text-sky-400',
+          bg: 'bg-blue-500/10 border-blue-500/30 text-blue-400',
           icon: AlertCircle,
           label: 'In Progress',
         };
-      case 'Resolved':
+      case 'resolved':
         return {
           bg: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400',
           icon: CheckCircle2,
@@ -33,7 +35,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, isOverdue = fa
         };
       default:
         return {
-          bg: 'bg-slate-500/10 border-slate-500/30 text-slate-300',
+          bg: 'bg-slate-500/10 border-slate-500/30 text-slate-400',
           icon: Clock,
           label: status,
         };
@@ -44,15 +46,15 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, isOverdue = fa
   const Icon = config.icon;
 
   return (
-    <div className="inline-flex items-center space-x-1.5">
-      <span className={`inline-flex items-center space-x-1 rounded-full border ${config.bg} ${sizeClasses}`}>
-        <Icon className="w-3 h-3" />
+    <div className="inline-flex items-center gap-1.5 font-mono">
+      <span className={`inline-flex items-center gap-1 rounded-full border font-medium ${config.bg} ${sizeClasses}`}>
+        <Icon className="w-3 h-3 shrink-0" />
         <span>{config.label}</span>
       </span>
 
-      {isOverdue && status !== 'Resolved' && (
-        <span className={`inline-flex items-center space-x-1 rounded-full border bg-rose-500/20 border-rose-500/40 text-rose-300 animate-pulse font-semibold ${sizeClasses}`}>
-          <AlertTriangle className="w-3 h-3 text-rose-400" />
+      {isOverdue && normalized !== 'resolved' && (
+        <span className={`inline-flex items-center gap-1 rounded-full border bg-red-500/20 border-red-500/40 text-red-400 animate-pulse font-semibold uppercase tracking-wider ${sizeClasses}`}>
+          <AlertTriangle className="w-3 h-3 text-red-400 shrink-0" />
           <span>OVERDUE</span>
         </span>
       )}

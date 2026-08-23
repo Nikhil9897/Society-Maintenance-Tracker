@@ -3,30 +3,30 @@ import { ComplaintPriority } from '../types';
 import { Flag } from 'lucide-react';
 
 interface PriorityBadgeProps {
-  priority: ComplaintPriority;
+  priority: ComplaintPriority | string;
   size?: 'sm' | 'md';
 }
 
 export const PriorityBadge: React.FC<PriorityBadgeProps> = ({ priority, size = 'md' }) => {
-  const sizeClasses = size === 'sm' ? 'px-2 py-0.5 text-xs' : 'px-2.5 py-0.5 text-xs font-medium';
+  const sizeClasses = size === 'sm' ? 'px-2 py-0.5 text-[10px]' : 'px-2.5 py-0.5 text-xs';
+
+  const normalized = typeof priority === 'string' ? priority.toLowerCase() : priority;
 
   const getPriorityConfig = () => {
-    switch (priority) {
-      case 'High':
+    switch (normalized) {
+      case 'critical':
+      case 'high':
         return {
-          bg: 'bg-rose-500/10 border-rose-500/30 text-rose-400',
-          dot: 'bg-rose-400',
+          bg: 'bg-red-500/10 border-red-500/30 text-red-400',
         };
-      case 'Medium':
+      case 'medium':
         return {
           bg: 'bg-amber-500/10 border-amber-500/30 text-amber-400',
-          dot: 'bg-amber-400',
         };
-      case 'Low':
+      case 'low':
       default:
         return {
-          bg: 'bg-slate-700/30 border-slate-700/50 text-slate-300',
-          dot: 'bg-slate-400',
+          bg: 'bg-slate/10 border-slate/20 text-slate',
         };
     }
   };
@@ -34,8 +34,8 @@ export const PriorityBadge: React.FC<PriorityBadgeProps> = ({ priority, size = '
   const config = getPriorityConfig();
 
   return (
-    <span className={`inline-flex items-center space-x-1.5 rounded-md border ${config.bg} ${sizeClasses}`}>
-      <Flag className="w-3 h-3" />
+    <span className={`inline-flex items-center gap-1.5 rounded-md border font-mono font-medium ${config.bg} ${sizeClasses}`}>
+      <Flag className="w-3 h-3 shrink-0" />
       <span>{priority}</span>
     </span>
   );

@@ -5,6 +5,8 @@ export interface User {
   email: string;
   name: string;
   role: UserRole;
+  flat_no?: string | null;
+  flat_number?: string | null;
   created_at: string;
 }
 

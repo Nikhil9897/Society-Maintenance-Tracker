@@ -1,0 +1,75 @@
+{
+  "results": {
+    "1": {
+      "status": "PASS",
+      "evidence": "Created complaint #2 with photo URL /uploads/92f6a714826a456b8be59b76f79da287.png (fetched HTTP 200, 587 bytes image). Status updated to In Progress (HTTP 200). Priority set to High (HTTP 200). Notice #3 created (HTTP 201).",
+      "notes": ""
+    },
+    "2": {
+      "status": "PASS",
+      "evidence": "Complaint #2 history has 2 entries (initial 'Open' + 'In Progress'). GET /notices returned 3 notices. EmailLog table contains 7 log entry for complaint #2: [(3, 'res_filter@example.com', 'Your complaint #2 status changed to In Progress', 'failed', 2, None), (12, 'res_filter@example.com', 'Your complaint #2 status changed to In Progress', 'failed', 2, None), (27, 'res_filter@example.com', 'Your complaint #2 status changed to In Progress', 'failed', 2, None), (42, 'res_filter@example.com', 'Your complaint #2 status changed to In Progress', 'failed', 2, None), (57, 'res_filter@example.com', 'Your complaint #2 status changed to In Progress', 'failed', 2, None), (72, 'res_filter@example.com', 'Your complaint #2 status changed to In Progress', 'failed', 2, None), (85, 'resident1_1787518312@sociosphere.in', 'Your complaint #2 status changed to In Progress', 'failed', 2, None)].",
+      "notes": ""
+    },
+    "3": {
+      "status": "PASS",
+      "evidence": "Resident registered & authenticated. Complaint with photo #2 (HTTP 201). Complaint without photo #3 (HTTP 201, photo_url=None). Invalid category 'SpaceTravel' rejected with HTTP 400 (Invalid category 'SpaceTravel'. Allowed categories: Plumbing, Electrical, Cleanliness, Security, Parking, Other).",
+      "notes": ""
+    },
+    "4": {
+      "status": "PASS",
+      "evidence": "GET /complaints/me returned 2 complaints (including #2 and #3). Status history array is sorted oldest-to-newest (['2026-08-23T20:52:08.462844', '2026-08-23T20:52:12.636064']). Resident 2 accessing Resident 1's complaint #2 rejected with HTTP 404 (Complaint not found).",
+      "notes": ""
+    },
+    "5": {
+      "status": "PASS",
+      "evidence": "Category filter returned 2 items (all Plumbing=True). Status filter returned 1 items (all In Progress=True). Future date_from filter returned 0 items (correctly excluded). Priority update to 'Medium' persisted after fresh GET (priority=Medium).",
+      "notes": ""
+    },
+    "6": {
+      "status": "PASS",
+      "evidence": "Complaint #4 transitioned Open -> In Progress -> Resolved. History has 3 records, all with non-null timestamps. Note 'Sanitation crew dispatched.' stored. Status change without note succeeded (HTTP 200).",
+      "notes": ""
+    },
+    "7": {
+      "status": "PASS",
+      "evidence": "Status progression after Resolved rejected with HTTP 400 (Complaint is closed. No further status changes are allowed.).",
+      "notes": "Status change after Resolved is strictly rejected with HTTP 400: 'Complaint is closed. No further status changes are allowed.'. Priority change on Resolved ticket returned HTTP 200 (priority remains mutable by design or viewable)."
+    },
+    "8": {
+      "status": "FAIL",
+      "evidence": "Threshold set to 0: complaint #5 has is_overdue=False. In admin list, first item is #1 with is_overdue=True (ranked at top). Reset threshold to 7: fresh complaint #6 has is_overdue=False.",
+      "notes": ""
+    },
+    "9": {
+      "status": "PASS",
+      "evidence": "Important notice #5 placed at index 0 ahead of newer non-important notice #6 at index 3. First notice is_important=True.",
+      "notes": ""
+    },
+    "10": {
+      "status": "FAIL",
+      "evidence": "Status change email sent strictly to owner ['res_dash@example.com', 'res_dash@example.com', 'res_dash@example.com', 'res_dash@example.com', 'res_dash@example.com', 'resident1_1787518312@sociosphere.in', 'resident1_1787518312@sociosphere.in'] (resident 2 excluded). Important notice #5 sent to all residents ['resident@society.com', 'agnikhil9897@gmail.com', 'resident1_1787518312@sociosphere.in', 'resident2_1787518312@sociosphere.in']. Non-important notice #6 generated 0 emails (correctly zero).",
+      "notes": ""
+    },
+    "11": {
+      "status": "PASS",
+      "evidence": "Dashboard: total=6 (DB=6), Open=4 (DB=4), In Progress=1 (DB=1), Resolved=1 (DB=1), Plumbing=2 (DB=2). Exact match.",
+      "notes": ""
+    }
+  },
+  "additional_checks": {
+    "rbac": "PASS",
+    "history_table": "PASS",
+    "upload_validation": "PASS",
+    "runtime_overdue": "PASS",
+    "upload_test_details": {
+      "non_image_status": 400,
+      "non_image_response": {
+        "detail": "Invalid image format. Only JPG, PNG, and WebP are allowed."
+      },
+      "oversized_status": 400,
+      "oversized_response": {
+        "detail": "File size exceeds the 5MB limit."
+      }
+    }
+  }
+}

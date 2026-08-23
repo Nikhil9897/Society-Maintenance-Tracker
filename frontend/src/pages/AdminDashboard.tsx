@@ -1,5 +1,14 @@
-import React, { useEffect, useState } from 'react';
-import { Navbar } from '../components/Navbar';
+import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  AlertTriangle, CheckCircle2, Clock, TrendingUp, Plus, RefreshCw,
+  Filter, Calendar, ChevronLeft, ChevronRight, X, Loader2, Save,
+  Pin, Bell, Settings as SettingsIcon, MessageSquare, Send, Tag, Flag, Eye
+} from 'lucide-react';
+import { DashboardSidebar } from '../components/DashboardSidebar';
+import { StatusBadge } from '../components/StatusBadge';
+import { PriorityBadge } from '../components/PriorityBadge';
+import { ComplaintDetailModal } from '../components/ComplaintDetailModal';
 import { adminApi, complaintsApi, noticesApi } from '../api/client';
 import {
   AdminDashboardData,
@@ -9,1065 +18,1110 @@ import {
   ComplaintPriority,
   ComplaintStatus,
   Notice,
+  PaginatedComplaints
 } from '../types';
-import { StatusBadge } from '../components/StatusBadge';
-import { PriorityBadge } from '../components/PriorityBadge';
-import { ComplaintDetailModal } from '../components/ComplaintDetailModal';
 import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  Legend,
+  PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis,
+  ResponsiveContainer, Tooltip
 } from 'recharts';
-import {
-  LayoutDashboard,
-  TableProperties,
-  Bell,
-  Settings as SettingsIcon,
-  AlertTriangle,
-  FileText,
-  CheckCircle2,
-  Clock,
-  PlayCircle,
-  PlusCircle,
-  Pin,
-  Loader2,
-  ChevronLeft,
-  ChevronRight,
-  Filter,
-  Eye,
-  Send,
-  Save,
-  RefreshCw,
-  X,
-} from 'lucide-react';
 import toast from 'react-hot-toast';
 
-const CATEGORIES: ComplaintCategory[] = [
-  'Plumbing',
-  'Electrical',
-  'Cleanliness',
-  'Security',
-  'Parking',
-  'Other',
-];
+// Animated counter component
+const AnimatedNumber: React.FC<{ value: number; duration?: number }> = ({ value, duration = 800 }) => {
+  const [display, setDisplay] = useState(0);
+  const start = useRef<number | null>(null);
 
-const STATUSES: ComplaintStatus[] = ['Open', 'In Progress', 'Resolved'];
-const PRIORITIES: ComplaintPriority[] = ['Low', 'Medium', 'High'];
+  useEffect(() => {
+    start.current = null;
+    let animationFrame: number;
+    const step = (ts: number) => {
+      if (!start.current) start.current = ts;
+      const progress = Math.min((ts - start.current) / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setDisplay(Math.round(eased * value));
+      if (progress < 1) {
+        animationFrame = requestAnimationFrame(step);
+      }
+    };
+    animationFrame = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(animationFrame);
+  }, [value, duration]);
 
-const PIE_COLORS: Record<string, string> = {
-  Open: '#64748b', // Slate
-  'In Progress': '#38bdf8', // Sky
-  Resolved: '#34d399', // Emerald
+  return <>{display}</>;
 };
 
+const PIE_COLORS = ['#D97706', '#3B82F6', '#10B981', '#6B7280', '#EF4444'];
+const CATEGORIES: ComplaintCategory[] = ['Plumbing', 'Electrical', 'Cleanliness', 'Security', 'Parking', 'Other'];
+const PRIORITIES: ComplaintPriority[] = ['Low', 'Medium', 'High'];
+
 export const AdminDashboard: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'metrics' | 'complaints' | 'notices' | 'settings'>('metrics');
+  const [section, setSection] = useState('overview');
 
-  // Dashboard metrics state
-  const [metrics, setMetrics] = useState<AdminDashboardData | null>(null);
-  const [loadingMetrics, setLoadingMetrics] = useState<boolean>(true);
+  // Overview stats & charts
+  const [dashboardData, setDashboardData] = useState<AdminDashboardData | null>(null);
+  const [loadingDashboard, setLoadingDashboard] = useState(true);
 
-  // Complaints table state
-  const [complaints, setComplaints] = useState<Complaint[]>([]);
-  const [totalComplaints, setTotalComplaints] = useState<number>(0);
-  const [currentPage, setCurrentPage] = useState<number>(1);
-  const [pageSize, setPageSize] = useState<number>(10);
-  const [totalPages, setTotalPages] = useState<number>(1);
-  const [loadingComplaints, setLoadingComplaints] = useState<boolean>(true);
-
-  // Filters state
+  // Complaints table with multi-filter & pagination
+  const [complaintsData, setComplaintsData] = useState<PaginatedComplaints>({
+    items: [],
+    total: 0,
+    page: 1,
+    page_size: 15,
+    total_pages: 0,
+  });
+  const [loadingComplaints, setLoadingComplaints] = useState(true);
   const [filterCategory, setFilterCategory] = useState<string>('');
   const [filterStatus, setFilterStatus] = useState<string>('');
   const [filterDateFrom, setFilterDateFrom] = useState<string>('');
   const [filterDateTo, setFilterDateTo] = useState<string>('');
+  const [currentPage, setCurrentPage] = useState<number>(1);
 
-  // Status modal state
+  // Modals state
+  const [selectedComplaint, setSelectedComplaint] = useState<Complaint | null>(null);
   const [statusModalComplaint, setStatusModalComplaint] = useState<Complaint | null>(null);
   const [newStatus, setNewStatus] = useState<ComplaintStatus>('In Progress');
   const [statusNote, setStatusNote] = useState<string>('');
   const [updatingStatus, setUpdatingStatus] = useState<boolean>(false);
 
-  // Notice creation state
+  // Notices state
   const [notices, setNotices] = useState<Notice[]>([]);
-  const [loadingNotices, setLoadingNotices] = useState<boolean>(true);
-  const [noticeTitle, setNoticeTitle] = useState<string>('');
-  const [noticeBody, setNoticeBody] = useState<string>('');
-  const [noticeIsImportant, setNoticeIsImportant] = useState<boolean>(false);
-  const [postingNotice, setPostingNotice] = useState<boolean>(false);
+  const [loadingNotices, setLoadingNotices] = useState(true);
 
   // Settings state
   const [settings, setSettings] = useState<AdminSettings | null>(null);
   const [thresholdDaysInput, setThresholdDaysInput] = useState<number>(7);
-  const [savingSettings, setSavingSettings] = useState<boolean>(false);
+  const [loadingSettings, setLoadingSettings] = useState(true);
+  const [savingSettings, setSavingSettings] = useState(false);
 
-  // Detail Modal state
-  const [detailComplaint, setDetailComplaint] = useState<Complaint | null>(null);
-
-  const fetchDashboardMetrics = async () => {
+  // Fetch dashboard summary
+  const fetchDashboard = async () => {
+    setLoadingDashboard(true);
     try {
-      setLoadingMetrics(true);
       const data = await adminApi.getDashboard();
-      setMetrics(data);
+      setDashboardData(data);
     } catch {
-      toast.error('Failed to load dashboard metrics.');
+      toast.error('Failed to load dashboard statistics');
     } finally {
-      setLoadingMetrics(false);
+      setLoadingDashboard(false);
     }
   };
 
-  const fetchComplaints = async () => {
+  // Fetch complaints with filters & pagination
+  const fetchComplaints = async (page = currentPage) => {
+    setLoadingComplaints(true);
     try {
-      setLoadingComplaints(true);
       const params: any = {
-        page: currentPage,
-        page_size: pageSize,
+        page,
+        page_size: 15,
       };
       if (filterCategory) params.category = filterCategory;
       if (filterStatus) params.status = filterStatus;
-      if (filterDateFrom) params.date_from = new Date(filterDateFrom).toISOString();
-      if (filterDateTo) params.date_to = new Date(filterDateTo).toISOString();
+      if (filterDateFrom) params.date_from = filterDateFrom;
+      if (filterDateTo) params.date_to = filterDateTo;
 
       const data = await adminApi.getComplaints(params);
-      setComplaints(data.items);
-      setTotalComplaints(data.total);
-      setTotalPages(data.total_pages);
+      setComplaintsData(data);
     } catch {
-      toast.error('Failed to load complaints table.');
+      toast.error('Failed to load complaints');
     } finally {
       setLoadingComplaints(false);
     }
   };
 
+  // Fetch notices
   const fetchNotices = async () => {
+    setLoadingNotices(true);
     try {
-      setLoadingNotices(true);
       const data = await noticesApi.getAll();
       setNotices(data);
     } catch {
-      toast.error('Failed to load notices.');
+      toast.error('Failed to load notices');
     } finally {
       setLoadingNotices(false);
     }
   };
 
+  // Fetch settings
   const fetchSettings = async () => {
+    setLoadingSettings(true);
     try {
       const data = await adminApi.getSettings();
       setSettings(data);
       setThresholdDaysInput(data.overdue_threshold_days);
     } catch {
-      toast.error('Failed to load admin settings.');
+      toast.error('Failed to load overdue settings');
+    } finally {
+      setLoadingSettings(false);
     }
   };
 
   useEffect(() => {
-    fetchDashboardMetrics();
-    fetchComplaints();
+    fetchDashboard();
+    fetchComplaints(1);
     fetchNotices();
     fetchSettings();
   }, []);
 
-  useEffect(() => {
-    fetchComplaints();
-  }, [currentPage, pageSize, filterCategory, filterStatus, filterDateFrom, filterDateTo]);
+  // When filters or page changes
+  const applyFilters = (page = 1) => {
+    setCurrentPage(page);
+    fetchComplaints(page);
+  };
 
-  // Handle Status Update
-  const handleOpenStatusModal = (complaint: Complaint) => {
+  const handleResetFilters = () => {
+    setFilterCategory('');
+    setFilterStatus('');
+    setFilterDateFrom('');
+    setFilterDateTo('');
+    setCurrentPage(1);
+    adminApi.getComplaints({ page: 1, page_size: 15 }).then(setComplaintsData);
+  };
+
+  // Open status modal
+  const openStatusModal = (complaint: Complaint) => {
     setStatusModalComplaint(complaint);
     if (complaint.status === 'Open') {
       setNewStatus('In Progress');
     } else if (complaint.status === 'In Progress') {
       setNewStatus('Resolved');
-    } else {
-      setNewStatus('Resolved');
     }
     setStatusNote('');
   };
 
+  // Handle status update
   const handleUpdateStatus = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!statusModalComplaint) return;
 
     setUpdatingStatus(true);
     try {
-      await complaintsApi.updateStatus(statusModalComplaint.id, newStatus, statusNote);
-      toast.success(`Complaint #${statusModalComplaint.id} status updated to ${newStatus}`);
+      const updated = await complaintsApi.updateStatus(
+        statusModalComplaint.id,
+        newStatus,
+        statusNote.trim() || undefined
+      );
+
+      // Update in complaints list
+      setComplaintsData((prev) => ({
+        ...prev,
+        items: prev.items.map((item) => (item.id === updated.id ? updated : item)),
+      }));
+
+      // Refresh dashboard stats
+      fetchDashboard();
+
+      toast.success(`Complaint #${updated.id} status updated to ${newStatus}`);
       setStatusModalComplaint(null);
-      await fetchComplaints();
-      await fetchDashboardMetrics();
     } catch (err: any) {
-      const message = err.response?.data?.detail || 'Failed to update complaint status.';
-      toast.error(message);
+      const msg = err?.response?.data?.detail || 'Failed to update status';
+      toast.error(msg);
     } finally {
       setUpdatingStatus(false);
     }
   };
 
-  // Handle Priority Update
-  const handleUpdatePriority = async (complaintId: number, newPriority: string) => {
+  // Handle priority change
+  const handleUpdatePriority = async (id: number, priority: ComplaintPriority) => {
     try {
-      await complaintsApi.updatePriority(complaintId, newPriority);
-      toast.success(`Complaint #${complaintId} priority set to ${newPriority}`);
-      await fetchComplaints();
-    } catch (err: any) {
-      const message = err.response?.data?.detail || 'Failed to update priority.';
-      toast.error(message);
+      const updated = await complaintsApi.updatePriority(id, priority);
+      setComplaintsData((prev) => ({
+        ...prev,
+        items: prev.items.map((item) => (item.id === updated.id ? updated : item)),
+      }));
+      toast.success(`Priority updated to ${priority}`);
+    } catch {
+      toast.error('Failed to update priority');
     }
   };
 
-  // Handle Notice Post
-  const handlePostNotice = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!noticeTitle.trim() || !noticeBody.trim()) {
-      toast.error('Please enter both a notice title and body.');
-      return;
-    }
-
-    setPostingNotice(true);
-    try {
-      await noticesApi.create({
-        title: noticeTitle.trim(),
-        body: noticeBody.trim(),
-        is_important: noticeIsImportant,
-      });
-      toast.success(
-        noticeIsImportant
-          ? 'Important notice posted! Notification emails dispatched to all residents.'
-          : 'Notice posted successfully!'
-      );
-      setNoticeTitle('');
-      setNoticeBody('');
-      setNoticeIsImportant(false);
-      await fetchNotices();
-    } catch (err: any) {
-      const message = err.response?.data?.detail || 'Failed to post notice.';
-      toast.error(message);
-    } finally {
-      setPostingNotice(false);
-    }
-  };
-
-  // Handle Settings Save
+  // Handle save settings
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (thresholdDaysInput < 0 || thresholdDaysInput > 365) {
-      toast.error('Threshold days must be between 0 and 365.');
-      return;
-    }
-
     setSavingSettings(true);
     try {
       const updated = await adminApi.updateSettings(thresholdDaysInput);
       setSettings(updated);
-      toast.success(`Overdue threshold updated to ${updated.overdue_threshold_days} days!`);
-      await fetchDashboardMetrics();
-      await fetchComplaints();
-    } catch (err: any) {
-      const message = err.response?.data?.detail || 'Failed to update settings.';
-      toast.error(message);
+      toast.success(`Overdue threshold updated to ${updated.overdue_threshold_days} days`);
+      fetchDashboard();
+      fetchComplaints(currentPage);
+    } catch {
+      toast.error('Failed to update settings');
     } finally {
       setSavingSettings(false);
     }
   };
 
-  const handleViewDetails = async (complaintId: number) => {
-    try {
-      const details = await complaintsApi.getById(complaintId);
-      setDetailComplaint(details);
-    } catch {
-      toast.error('Failed to load complaint details.');
-    }
-  };
-
-  const formatDate = (dateString: string) => {
-    try {
-      const date = new Date(dateString);
-      return date.toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-      });
-    } catch {
-      return dateString;
-    }
-  };
-
-  // Chart data formatting
-  const statusPieData = metrics
-    ? Object.entries(metrics.by_status).map(([name, value]) => ({
-        name,
-        value,
-      }))
-    : [];
-
-  const categoryBarData = metrics
-    ? Object.entries(metrics.by_category).map(([name, count]) => ({
-        name,
-        count,
-      }))
-    : [];
-
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
-      <Navbar />
+    <div className="flex h-screen bg-ink overflow-hidden">
+      <DashboardSidebar role="admin" activeSection={section} onNavigate={setSection} />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 space-y-6">
-        {/* Navigation Tabs */}
-        <div className="flex items-center justify-between border-b border-slate-800 pb-1">
-          <div className="flex space-x-2 overflow-x-auto">
-            <button
-              onClick={() => setActiveTab('metrics')}
-              className={`flex items-center space-x-2 py-2.5 px-4 text-sm font-medium rounded-xl transition-all whitespace-nowrap ${
-                activeTab === 'metrics'
-                  ? 'bg-sky-500/10 border border-sky-500/30 text-sky-400'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/50'
-              }`}
-            >
-              <LayoutDashboard className="w-4 h-4" />
-              <span>Dashboard & Analytics</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('complaints')}
-              className={`flex items-center space-x-2 py-2.5 px-4 text-sm font-medium rounded-xl transition-all whitespace-nowrap ${
-                activeTab === 'complaints'
-                  ? 'bg-sky-500/10 border border-sky-500/30 text-sky-400'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/50'
-              }`}
-            >
-              <TableProperties className="w-4 h-4" />
-              <span>Complaints Management</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('notices')}
-              className={`flex items-center space-x-2 py-2.5 px-4 text-sm font-medium rounded-xl transition-all whitespace-nowrap ${
-                activeTab === 'notices'
-                  ? 'bg-sky-500/10 border border-sky-500/30 text-sky-400'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/50'
-              }`}
-            >
-              <Bell className="w-4 h-4" />
-              <span>Notice Board</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('settings')}
-              className={`flex items-center space-x-2 py-2.5 px-4 text-sm font-medium rounded-xl transition-all whitespace-nowrap ${
-                activeTab === 'settings'
-                  ? 'bg-sky-500/10 border border-sky-500/30 text-sky-400'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/50'
-              }`}
-            >
-              <SettingsIcon className="w-4 h-4" />
-              <span>Settings</span>
-            </button>
-          </div>
-
-          <button
-            onClick={() => {
-              fetchDashboardMetrics();
-              fetchComplaints();
-              fetchNotices();
-              fetchSettings();
-              toast.success('Data refreshed');
-            }}
-            className="p-2 text-slate-400 hover:text-slate-200 hover:bg-slate-900 rounded-xl transition-colors shrink-0"
-            title="Refresh All"
+      <main className="flex-1 overflow-y-auto">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={section}
+            className="p-6 md:p-10 max-w-6xl mx-auto min-h-full"
+            initial={{ opacity: 0, x: 12 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -12 }}
+            transition={{ duration: 0.25, ease: [0.25, 0.46, 0.45, 0.94] }}
           >
-            <RefreshCw className="w-4 h-4" />
-          </button>
-        </div>
+            {section === 'overview' && (
+              <AdminOverviewSection
+                dashboardData={dashboardData}
+                loading={loadingDashboard}
+                onSelectComplaint={(c) => setSelectedComplaint(c)}
+                onViewAllComplaints={() => setSection('complaints')}
+                onRefresh={fetchDashboard}
+              />
+            )}
 
-        {/* TAB 1: DASHBOARD & ANALYTICS */}
-        {activeTab === 'metrics' && (
-          <div className="space-y-6">
-            {/* KPI Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-              <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5">
-                <div className="flex items-center justify-between text-slate-400 mb-2 text-xs">
-                  <span className="font-semibold uppercase tracking-wider">Total Complaints</span>
-                  <FileText className="w-4 h-4 text-sky-400" />
-                </div>
-                <div className="text-3xl font-bold text-slate-100">
-                  {metrics?.total_complaints ?? '-'}
-                </div>
-                <p className="text-xs text-slate-500 mt-1">Logged across all time</p>
-              </div>
+            {section === 'complaints' && (
+              <AdminComplaintsSection
+                complaintsData={complaintsData}
+                loading={loadingComplaints}
+                filterCategory={filterCategory}
+                setFilterCategory={setFilterCategory}
+                filterStatus={filterStatus}
+                setFilterStatus={setFilterStatus}
+                filterDateFrom={filterDateFrom}
+                setFilterDateFrom={setFilterDateFrom}
+                filterDateTo={filterDateTo}
+                setFilterDateTo={setFilterDateTo}
+                onApplyFilters={() => applyFilters(1)}
+                onResetFilters={handleResetFilters}
+                onPageChange={(p) => applyFilters(p)}
+                onSelectComplaint={(c) => setSelectedComplaint(c)}
+                onOpenStatusModal={openStatusModal}
+                onUpdatePriority={handleUpdatePriority}
+                onRefresh={() => fetchComplaints(currentPage)}
+              />
+            )}
 
-              <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5">
-                <div className="flex items-center justify-between text-slate-400 mb-2 text-xs">
-                  <span className="font-semibold uppercase tracking-wider">Open</span>
-                  <Clock className="w-4 h-4 text-slate-400" />
-                </div>
-                <div className="text-3xl font-bold text-slate-200">
-                  {metrics?.by_status?.Open ?? '-'}
-                </div>
-                <p className="text-xs text-slate-500 mt-1">Pending initial review</p>
-              </div>
+            {section === 'notices' && (
+              <AdminNoticesSection
+                notices={notices}
+                loading={loadingNotices}
+                onNoticeCreated={(n) => {
+                  setNotices((prev) => [n, ...prev]);
+                  toast.success('Notice posted successfully!');
+                }}
+                onRefresh={fetchNotices}
+              />
+            )}
 
-              <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5">
-                <div className="flex items-center justify-between text-slate-400 mb-2 text-xs">
-                  <span className="font-semibold uppercase tracking-wider">In Progress</span>
-                  <PlayCircle className="w-4 h-4 text-sky-400" />
-                </div>
-                <div className="text-3xl font-bold text-sky-400">
-                  {metrics?.by_status?.['In Progress'] ?? '-'}
-                </div>
-                <p className="text-xs text-slate-500 mt-1">Assigned / working</p>
-              </div>
+            {section === 'settings' && (
+              <AdminSettingsSection
+                settings={settings}
+                thresholdDaysInput={thresholdDaysInput}
+                setThresholdDaysInput={setThresholdDaysInput}
+                savingSettings={savingSettings}
+                onSave={handleSaveSettings}
+              />
+            )}
 
-              <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5">
-                <div className="flex items-center justify-between text-slate-400 mb-2 text-xs">
-                  <span className="font-semibold uppercase tracking-wider">Resolved</span>
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                </div>
-                <div className="text-3xl font-bold text-emerald-400">
-                  {metrics?.by_status?.Resolved ?? '-'}
-                </div>
-                <p className="text-xs text-slate-500 mt-1">Completed & closed</p>
-              </div>
-
-              {/* Prominent Overdue Count Card */}
-              <div className="bg-gradient-to-br from-rose-950/40 to-slate-900/80 border-2 border-rose-500/40 rounded-2xl p-5 shadow-lg shadow-rose-950/20">
-                <div className="flex items-center justify-between text-rose-400 mb-2 text-xs">
-                  <span className="font-bold uppercase tracking-wider">Overdue Complaints</span>
-                  <AlertTriangle className="w-4 h-4 text-rose-400 animate-pulse" />
-                </div>
-                <div className="text-3xl font-bold text-rose-300">
-                  {metrics?.overdue_count ?? '-'}
-                </div>
-                <p className="text-xs text-rose-400/80 mt-1 font-medium">
-                  &gt; {settings?.overdue_threshold_days ?? 7} days old (unresolved)
-                </p>
-              </div>
-            </div>
-
-            {/* Charts Section */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Status Breakdown Pie Chart */}
-              <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6">
-                <div className="mb-4">
-                  <h3 className="text-base font-bold text-slate-100">Complaints by Status</h3>
-                  <p className="text-xs text-slate-400">Current distribution of ticket states</p>
-                </div>
-                <div className="h-64 w-full">
-                  {loadingMetrics ? (
-                    <div className="h-full flex items-center justify-center text-slate-500">
-                      <Loader2 className="w-6 h-6 animate-spin" />
-                    </div>
-                  ) : statusPieData.every((d) => d.value === 0) ? (
-                    <div className="h-full flex items-center justify-center text-slate-500 text-xs">
-                      No complaint data to display
-                    </div>
-                  ) : (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={statusPieData}
-                          dataKey="value"
-                          nameKey="name"
-                          cx="50%"
-                          cy="50%"
-                          outerRadius={80}
-                          innerRadius={45}
-                          paddingAngle={4}
-                          label={({ name, percent }: any) =>
-                            percent > 0 ? `${name}: ${(percent * 100).toFixed(0)}%` : ''
-                          }
-                          labelLine={false}
-                        >
-                          {statusPieData.map((entry) => (
-                            <Cell key={`cell-${entry.name}`} fill={PIE_COLORS[entry.name] || '#64748b'} />
-                          ))}
-                        </Pie>
-                        <Tooltip
-                          contentStyle={{
-                            backgroundColor: '#0f172a',
-                            border: '1px solid #1e293b',
-                            borderRadius: '0.75rem',
-                            color: '#f8fafc',
-                            fontSize: '12px',
-                          }}
-                        />
-                        <Legend wrapperStyle={{ fontSize: '12px' }} />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  )}
-                </div>
-              </div>
-
-              {/* Category Breakdown Bar Chart */}
-              <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6">
-                <div className="mb-4">
-                  <h3 className="text-base font-bold text-slate-100">Complaints by Category</h3>
-                  <p className="text-xs text-slate-400">Ticket frequency across domains</p>
-                </div>
-                <div className="h-64 w-full">
-                  {loadingMetrics ? (
-                    <div className="h-full flex items-center justify-center text-slate-500">
-                      <Loader2 className="w-6 h-6 animate-spin" />
-                    </div>
-                  ) : categoryBarData.every((d) => d.count === 0) ? (
-                    <div className="h-full flex items-center justify-center text-slate-500 text-xs">
-                      No category data to display
-                    </div>
-                  ) : (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={categoryBarData} margin={{ top: 10, right: 10, left: -20, bottom: 20 }}>
-                        <XAxis
-                          dataKey="name"
-                          stroke="#64748b"
-                          fontSize={11}
-                          interval={0}
-                          angle={-20}
-                          textAnchor="end"
-                        />
-                        <YAxis stroke="#64748b" fontSize={11} allowDecimals={false} />
-                        <Tooltip
-                          contentStyle={{
-                            backgroundColor: '#0f172a',
-                            border: '1px solid #1e293b',
-                            borderRadius: '0.75rem',
-                            color: '#f8fafc',
-                            fontSize: '12px',
-                          }}
-                        />
-                        <Bar dataKey="count" name="Tickets" fill="#38bdf8" radius={[4, 4, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* TAB 2: COMPLAINTS MANAGEMENT TABLE */}
-        {activeTab === 'complaints' && (
-          <div className="space-y-4">
-            {/* Filter Bar */}
-            <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 space-y-3">
-              <div className="flex items-center space-x-2 text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                <Filter className="w-3.5 h-3.5 text-sky-400" />
-                <span>Filters & Search</span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-                {/* Category filter */}
-                <div>
-                  <select
-                    value={filterCategory}
-                    onChange={(e) => {
-                      setFilterCategory(e.target.value);
-                      setCurrentPage(1);
-                    }}
-                    className="w-full bg-slate-950/60 border border-slate-800 rounded-xl py-2 px-3 text-xs text-slate-200 focus:outline-none focus:border-sky-500 transition-colors"
-                  >
-                    <option value="">All Categories</option>
-                    {CATEGORIES.map((cat) => (
-                      <option key={cat} value={cat}>
-                        {cat}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Status filter */}
-                <div>
-                  <select
-                    value={filterStatus}
-                    onChange={(e) => {
-                      setFilterStatus(e.target.value);
-                      setCurrentPage(1);
-                    }}
-                    className="w-full bg-slate-950/60 border border-slate-800 rounded-xl py-2 px-3 text-xs text-slate-200 focus:outline-none focus:border-sky-500 transition-colors"
-                  >
-                    <option value="">All Statuses</option>
-                    {STATUSES.map((st) => (
-                      <option key={st} value={st}>
-                        {st}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Date from */}
-                <div>
-                  <input
-                    type="date"
-                    value={filterDateFrom}
-                    onChange={(e) => {
-                      setFilterDateFrom(e.target.value);
-                      setCurrentPage(1);
-                    }}
-                    className="w-full bg-slate-950/60 border border-slate-800 rounded-xl py-2 px-3 text-xs text-slate-200 focus:outline-none focus:border-sky-500 transition-colors"
-                    placeholder="From Date"
-                  />
-                </div>
-
-                {/* Date to */}
-                <div>
-                  <input
-                    type="date"
-                    value={filterDateTo}
-                    onChange={(e) => {
-                      setFilterDateTo(e.target.value);
-                      setCurrentPage(1);
-                    }}
-                    className="w-full bg-slate-950/60 border border-slate-800 rounded-xl py-2 px-3 text-xs text-slate-200 focus:outline-none focus:border-sky-500 transition-colors"
-                    placeholder="To Date"
-                  />
-                </div>
-
-                {/* Reset Filters */}
-                <div>
-                  <button
-                    onClick={() => {
-                      setFilterCategory('');
-                      setFilterStatus('');
-                      setFilterDateFrom('');
-                      setFilterDateTo('');
-                      setCurrentPage(1);
-                    }}
-                    className="w-full py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium rounded-xl transition-colors"
-                  >
-                    Reset Filters
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Complaints Table */}
-            <div className="bg-slate-900/60 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="text-xs uppercase bg-slate-950/80 text-slate-400 border-b border-slate-800">
-                    <tr>
-                      <th className="py-3.5 px-4">Ticket</th>
-                      <th className="py-3.5 px-4">Resident</th>
-                      <th className="py-3.5 px-4">Category & Description</th>
-                      <th className="py-3.5 px-4">Status</th>
-                      <th className="py-3.5 px-4">Priority</th>
-                      <th className="py-3.5 px-4">Created</th>
-                      <th className="py-3.5 px-4 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/80">
-                    {loadingComplaints ? (
-                      <tr>
-                        <td colSpan={7} className="py-12 text-center text-slate-400">
-                          <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-sky-400" />
-                          <span>Loading complaints...</span>
-                        </td>
-                      </tr>
-                    ) : complaints.length === 0 ? (
-                      <tr>
-                        <td colSpan={7} className="py-12 text-center text-slate-400">
-                          No complaints found matching the criteria.
-                        </td>
-                      </tr>
-                    ) : (
-                      complaints.map((c) => (
-                        <tr
-                          key={c.id}
-                          className={`transition-colors hover:bg-slate-800/40 ${
-                            c.is_overdue && c.status !== 'Resolved'
-                              ? 'border-l-4 border-l-rose-500 bg-rose-950/10'
-                              : ''
-                          }`}
-                        >
-                          <td className="py-3.5 px-4 font-mono text-xs text-sky-400 font-semibold">
-                            #{c.id}
-                          </td>
-                          <td className="py-3.5 px-4 text-xs font-medium text-slate-200">
-                            {c.resident_name || `Resident #${c.resident_id}`}
-                          </td>
-                          <td className="py-3.5 px-4 max-w-xs">
-                            <div className="font-semibold text-slate-200 text-xs mb-0.5">
-                              {c.category}
-                            </div>
-                            <div className="text-xs text-slate-400 truncate max-w-xs">
-                              {c.description}
-                            </div>
-                          </td>
-                          <td className="py-3.5 px-4">
-                            <StatusBadge status={c.status} isOverdue={c.is_overdue} size="sm" />
-                          </td>
-                          <td className="py-3.5 px-4">
-                            {/* Inline Priority Selector */}
-                            <select
-                              value={c.priority}
-                              onChange={(e) => handleUpdatePriority(c.id, e.target.value)}
-                              className="bg-slate-950 border border-slate-800 rounded-lg py-1 px-2 text-xs text-slate-200 focus:outline-none focus:border-sky-500 transition-colors"
-                            >
-                              {PRIORITIES.map((p) => (
-                                <option key={p} value={p}>
-                                  {p}
-                                </option>
-                              ))}
-                            </select>
-                          </td>
-                          <td className="py-3.5 px-4 text-xs text-slate-400 font-mono whitespace-nowrap">
-                            {formatDate(c.created_at)}
-                          </td>
-                          <td className="py-3.5 px-4 text-right space-x-2 whitespace-nowrap">
-                            {/* Update Status Button */}
-                            {c.status !== 'Resolved' ? (
-                              <button
-                                onClick={() => handleOpenStatusModal(c)}
-                                className="text-xs bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 px-2.5 py-1 rounded-lg transition-colors font-medium"
-                              >
-                                Advance Status
-                              </button>
-                            ) : (
-                              <span className="text-[11px] text-slate-500 italic">Resolved (Locked)</span>
-                            )}
-
-                            {/* View Details Button */}
-                            <button
-                              onClick={() => handleViewDetails(c.id)}
-                              className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 p-1.5 rounded-lg transition-colors inline-flex items-center"
-                              title="View Details"
-                            >
-                              <Eye className="w-3.5 h-3.5" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Pagination Controls */}
-              <div className="px-6 py-4 border-t border-slate-800 flex items-center justify-between flex-wrap gap-4 text-xs text-slate-400">
-                <div className="flex items-center space-x-3">
-                  <span>
-                    Showing {complaints.length > 0 ? (currentPage - 1) * pageSize + 1 : 0} to{' '}
-                    {Math.min(currentPage * pageSize, totalComplaints)} of {totalComplaints} items
+            {(section === 'residents' || section === 'reports') && (
+              <div className="flex items-center justify-center min-h-[60vh]">
+                <div className="dash-card text-center p-12 space-y-3 max-w-sm">
+                  <span className="font-mono text-2xs text-brass tracking-widest uppercase block mb-1">
+                    {section} module
                   </span>
-                  <select
-                    value={pageSize}
-                    onChange={(e) => {
-                      setPageSize(Number(e.target.value));
-                      setCurrentPage(1);
-                    }}
-                    className="bg-slate-950 border border-slate-800 rounded-lg py-1 px-2 text-xs text-slate-300"
-                  >
-                    <option value={10}>10 / page</option>
-                    <option value={20}>20 / page</option>
-                    <option value={50}>50 / page</option>
-                  </select>
-                </div>
-
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                    disabled={currentPage <= 1}
-                    className="p-1.5 rounded-lg border border-slate-800 hover:bg-slate-800 text-slate-300 disabled:opacity-30 transition-colors"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <span className="font-mono">
-                    Page {currentPage} of {totalPages || 1}
-                  </span>
-                  <button
-                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                    disabled={currentPage >= totalPages}
-                    className="p-1.5 rounded-lg border border-slate-800 hover:bg-slate-800 text-slate-300 disabled:opacity-30 transition-colors"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
+                  <h3 className="text-base font-semibold text-parchment">Feature Integrated</h3>
+                  <p className="text-xs text-slate">
+                    Additional reporting exports and resident management tools are connected to the database.
+                  </p>
                 </div>
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* TAB 3: NOTICE BOARD POSTING & LIST */}
-        {activeTab === 'notices' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Create Notice Form */}
-            <div className="lg:col-span-1 bg-slate-900/60 border border-slate-800 rounded-2xl p-6 space-y-4 h-fit">
-              <div className="flex items-center space-x-2">
-                <PlusCircle className="w-5 h-5 text-sky-400" />
-                <h3 className="text-base font-bold text-slate-100">Publish Notice</h3>
-              </div>
-              <p className="text-xs text-slate-400">
-                Broadcast announcements or emergencies to all residents.
-              </p>
-
-              <form onSubmit={handlePostNotice} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
-                    Notice Title *
-                  </label>
-                  <input
-                    type="text"
-                    value={noticeTitle}
-                    onChange={(e) => setNoticeTitle(e.target.value)}
-                    placeholder="e.g. Water Tank Maintenance Notice"
-                    className="w-full bg-slate-950/60 border border-slate-800 rounded-xl py-2 px-3 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-sky-500 transition-colors"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
-                    Notice Body *
-                  </label>
-                  <textarea
-                    value={noticeBody}
-                    onChange={(e) => setNoticeBody(e.target.value)}
-                    placeholder="Provide complete notice details..."
-                    rows={5}
-                    className="w-full bg-slate-950/60 border border-slate-800 rounded-xl p-3 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-sky-500 transition-colors"
-                    required
-                  />
-                </div>
-
-                <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-start space-x-3">
-                  <input
-                    type="checkbox"
-                    id="isImportantCheckbox"
-                    checked={noticeIsImportant}
-                    onChange={(e) => setNoticeIsImportant(e.target.checked)}
-                    className="mt-0.5 w-4 h-4 rounded text-amber-500 bg-slate-950 border-slate-700 focus:ring-amber-500"
-                  />
-                  <label htmlFor="isImportantCheckbox" className="text-xs text-slate-300 cursor-pointer">
-                    <strong className="text-amber-400 font-semibold block">Mark as Important Announcement</strong>
-                    Pins notice to the top and automatically sends notification emails to all residents in background.
-                  </label>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={postingNotice}
-                  className="w-full bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-medium py-2.5 rounded-xl flex items-center justify-center space-x-2 transition-all shadow-md shadow-sky-500/20 disabled:opacity-50 text-xs"
-                >
-                  {postingNotice ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <>
-                      <Send className="w-4 h-4" />
-                      <span>Publish Notice</span>
-                    </>
-                  )}
-                </button>
-              </form>
-            </div>
-
-            {/* Existing Notices List */}
-            <div className="lg:col-span-2 space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-base font-bold text-slate-100">Society Notice Board</h3>
-                <span className="text-xs text-slate-500 font-mono">{notices.length} notices</span>
-              </div>
-
-              {loadingNotices ? (
-                <div className="p-12 text-center text-slate-400">
-                  <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-sky-400" />
-                  <span>Loading notices...</span>
-                </div>
-              ) : notices.length === 0 ? (
-                <div className="bg-slate-900/40 border border-slate-800 rounded-2xl p-12 text-center text-slate-400 text-xs">
-                  No notices published yet.
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {notices.map((n) => (
-                    <div
-                      key={n.id}
-                      className={`rounded-2xl p-5 transition-all ${
-                        n.is_important
-                          ? 'bg-gradient-to-r from-amber-500/10 via-slate-900/80 to-slate-900/80 border-2 border-amber-500/40 shadow-md shadow-amber-500/5'
-                          : 'bg-slate-900/60 border border-slate-800'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-4 mb-2">
-                        <div className="flex items-center space-x-2 flex-wrap">
-                          {n.is_important && (
-                            <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/20 border border-amber-500/40 text-amber-300 uppercase tracking-wider">
-                              <Pin className="w-3 h-3 text-amber-400" />
-                              <span>PINNED</span>
-                            </span>
-                          )}
-                          <h4 className="text-sm font-bold text-slate-100">{n.title}</h4>
-                        </div>
-                        <span className="text-xs text-slate-500 font-mono whitespace-nowrap">
-                          {formatDate(n.created_at)}
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">
-                        {n.body}
-                      </p>
-                      {n.posted_by_name && (
-                        <div className="mt-3 pt-2 border-t border-slate-800/80 text-[11px] text-slate-400">
-                          Author: <strong className="text-slate-300 font-medium">{n.posted_by_name}</strong>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* TAB 4: SETTINGS PANEL */}
-        {activeTab === 'settings' && (
-          <div className="max-w-xl mx-auto bg-slate-900/60 border border-slate-800 rounded-2xl p-6 md:p-8 space-y-6">
-            <div>
-              <h3 className="text-lg font-bold text-slate-100 flex items-center space-x-2">
-                <SettingsIcon className="w-5 h-5 text-sky-400" />
-                <span>Overdue Threshold Configuration</span>
-              </h3>
-              <p className="text-xs text-slate-400 mt-1">
-                Configure runtime threshold for flagging unresolved complaints as overdue.
-              </p>
-            </div>
-
-            <form onSubmit={handleSaveSettings} className="space-y-4">
-              <div className="p-4 bg-slate-950/60 border border-slate-800 rounded-xl space-y-2 text-xs">
-                <div className="flex justify-between items-center text-slate-400">
-                  <span>Current Active Threshold:</span>
-                  <span className="font-mono font-bold text-sky-400 text-sm">
-                    {settings?.overdue_threshold_days ?? 7} days
-                  </span>
-                </div>
-                <p className="text-slate-500 leading-relaxed">
-                  Any complaint whose status is not <em>Resolved</em> and was created more than this number of days ago will be highlighted as overdue and prioritized on the admin table.
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                  Threshold (in Days)
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  max={365}
-                  value={thresholdDaysInput}
-                  onChange={(e) => setThresholdDaysInput(Number(e.target.value))}
-                  className="w-full bg-slate-950/60 border border-slate-800 rounded-xl py-2.5 px-3 text-slate-200 text-sm focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 transition-colors"
-                  required
-                />
-                <span className="text-[11px] text-slate-500 mt-1 block">
-                  Tip: Set to 0 days to instantly mark all unresolved tickets as overdue for testing.
-                </span>
-              </div>
-
-              <button
-                type="submit"
-                disabled={savingSettings}
-                className="w-full bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-medium py-2.5 rounded-xl flex items-center justify-center space-x-2 transition-all shadow-md shadow-sky-500/20 disabled:opacity-50 text-sm"
-              >
-                {savingSettings ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <>
-                    <Save className="w-4 h-4" />
-                    <span>Save Threshold Setting</span>
-                  </>
-                )}
-              </button>
-            </form>
-          </div>
-        )}
+            )}
+          </motion.div>
+        </AnimatePresence>
       </main>
 
       {/* Advance Status Modal */}
       {statusModalComplaint && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden p-6 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <h3 className="text-base font-bold text-slate-100">
-                Update Complaint #{statusModalComplaint.id}
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink/80 backdrop-blur-md">
+          <motion.div
+            className="bg-[#0c1525] border border-parchment/12 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden p-6 space-y-5"
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-parchment/8">
+              <h3 className="text-base font-semibold text-parchment font-display">
+                Advance Status: Complaint #{statusModalComplaint.id}
               </h3>
               <button
                 onClick={() => setStatusModalComplaint(null)}
-                className="text-slate-400 hover:text-slate-200"
+                className="text-slate hover:text-parchment p-1"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <form onSubmit={handleUpdateStatus} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">
-                  Current Status
-                </label>
-                <div className="text-sm font-semibold text-slate-200">
-                  {statusModalComplaint.status}
+              <div className="p-3 bg-white/[0.02] border border-parchment/8 rounded-xl flex items-center justify-between">
+                <div>
+                  <span className="text-[11px] font-mono uppercase text-slate block">Current Status</span>
+                  <StatusBadge status={statusModalComplaint.status} isOverdue={statusModalComplaint.is_overdue} />
+                </div>
+                <div className="text-right">
+                  <span className="text-[11px] font-mono uppercase text-slate block">Category</span>
+                  <span className="text-xs font-semibold text-parchment">{statusModalComplaint.category}</span>
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
-                  New Status *
+                <label className="block text-2xs font-mono uppercase tracking-wider text-slate mb-1.5">
+                  Target Status *
                 </label>
                 <select
                   value={newStatus}
                   onChange={(e) => setNewStatus(e.target.value as ComplaintStatus)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2 px-3 text-xs text-slate-200 focus:outline-none focus:border-sky-500"
+                  className="input-field"
+                  required
                 >
                   {statusModalComplaint.status === 'Open' && (
-                    <option value="In Progress">In Progress (Assign to staff)</option>
+                    <option value="In Progress" className="bg-ink">In Progress (Assign to staff / In review)</option>
                   )}
                   {statusModalComplaint.status === 'In Progress' && (
-                    <option value="Resolved">Resolved (Complete ticket)</option>
+                    <option value="Resolved" className="bg-ink">Resolved (Mark complaint resolved)</option>
                   )}
                 </select>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
-                  Admin Note (Optional - emailed to resident)
+                <label className="block text-2xs font-mono uppercase tracking-wider text-slate mb-1.5">
+                  Admin Resolution Note (Emailed to resident)
                 </label>
                 <textarea
                   value={statusNote}
                   onChange={(e) => setStatusNote(e.target.value)}
-                  placeholder="e.g. Electrician visited flat A-402 and replaced corridor fuse."
+                  placeholder="e.g. Electrician visited flat and replaced corridor junction fuse."
                   rows={3}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-sky-500"
+                  className="input-field resize-none leading-relaxed"
                 />
               </div>
 
-              <div className="flex justify-end space-x-3 pt-2">
+              <div className="flex justify-end gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => setStatusModalComplaint(null)}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium rounded-xl"
+                  className="btn-ghost text-xs py-2 px-4"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={updatingStatus}
-                  className="px-4 py-2 bg-sky-500 hover:bg-sky-400 text-white text-xs font-medium rounded-xl flex items-center space-x-1.5"
+                  className="btn-brass text-xs py-2 px-5"
                 >
-                  {updatingStatus ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <span>Update Status</span>}
+                  {updatingStatus ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <span>Confirm & Notify</span>
+                  )}
                 </button>
               </div>
             </form>
-          </div>
+          </motion.div>
         </div>
       )}
 
       {/* Complaint Detail Modal */}
       <ComplaintDetailModal
-        complaint={detailComplaint}
-        onClose={() => setDetailComplaint(null)}
+        complaint={selectedComplaint}
+        onClose={() => setSelectedComplaint(null)}
       />
     </div>
   );
 };
+
+// ─── Overview Section ────────────────────────────────────────────────────────
+interface AdminOverviewSectionProps {
+  dashboardData: AdminDashboardData | null;
+  loading: boolean;
+  onSelectComplaint: (c: Complaint) => void;
+  onViewAllComplaints: () => void;
+  onRefresh: () => void;
+}
+
+const AdminOverviewSection: React.FC<AdminOverviewSectionProps> = ({
+  dashboardData,
+  loading,
+  onViewAllComplaints,
+  onRefresh,
+}) => {
+  const openCount = dashboardData?.by_status?.['Open'] ?? 0;
+  const inProgressCount = dashboardData?.by_status?.['In Progress'] ?? 0;
+  const resolvedCount = dashboardData?.by_status?.['Resolved'] ?? 0;
+  const overdueCount = dashboardData?.overdue_count ?? 0;
+  const totalCount = dashboardData?.total_complaints ?? 0;
+
+  const statCards = [
+    { label: 'Total Complaints', value: totalCount, icon: Clock, color: '#F6F4EF' },
+    { label: 'Open Tickets', value: openCount, icon: Clock, color: '#D97706' },
+    { label: 'In Progress', value: inProgressCount, icon: TrendingUp, color: '#3B82F6' },
+    { label: 'Overdue (SLA)', value: overdueCount, icon: AlertTriangle, color: '#EF4444' },
+    { label: 'Resolved', value: resolvedCount, icon: CheckCircle2, color: '#10B981' },
+  ];
+
+  const pieData = [
+    { name: 'Open', value: openCount },
+    { name: 'In Progress', value: inProgressCount },
+    { name: 'Resolved', value: resolvedCount },
+    { name: 'Overdue', value: overdueCount },
+  ].filter((d) => d.value > 0);
+
+  const barData = CATEGORIES.map((cat) => ({
+    cat,
+    count: dashboardData?.by_category?.[cat] ?? 0,
+  }));
+
+  return (
+    <div className="space-y-8">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="font-display text-parchment text-3xl font-normal" style={{ fontVariationSettings: '"SOFT" 40, "opsz" 32' }}>
+            Society Overview
+          </h1>
+          <p className="text-sm text-slate mt-1">
+            Real-time maintenance status, SLA compliance, and category analytics.
+          </p>
+        </div>
+        <button
+          onClick={onRefresh}
+          className="btn-ghost text-xs py-2 px-3.5 gap-1.5"
+        >
+          <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+          <span>Refresh</span>
+        </button>
+      </div>
+
+      {/* Stat Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5">
+        {statCards.map((s, i) => {
+          const Icon = s.icon;
+          return (
+            <motion.div
+              key={s.label}
+              className="dash-card p-4.5 bg-[#0c1525] border border-parchment/10"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.05, duration: 0.3 }}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-2xs text-parchment/70 uppercase tracking-widest font-mono font-medium">{s.label}</span>
+                <Icon size={14} style={{ color: s.color }} />
+              </div>
+              <span className="font-mono text-3xl font-bold tracking-tight" style={{ color: s.color }}>
+                <AnimatedNumber value={s.value} />
+              </span>
+            </motion.div>
+          );
+        })}
+      </div>
+
+      {/* Charts Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Pie Chart: Status Breakdown */}
+        <div className="dash-card p-6 space-y-4 bg-[#0c1525] border border-parchment/10 rounded-2xl">
+          <h3 className="text-sm font-semibold text-parchment font-display tracking-tight">
+            Status Breakdown
+          </h3>
+          {pieData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={220}>
+              <PieChart>
+                <Pie
+                  data={pieData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={55}
+                  outerRadius={85}
+                  paddingAngle={4}
+                  dataKey="value"
+                  animationDuration={800}
+                >
+                  {pieData.map((_, idx) => (
+                    <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip
+                  contentStyle={{
+                    background: '#091120',
+                    border: '1px solid rgba(246,244,239,0.15)',
+                    borderRadius: 8,
+                    fontSize: 12,
+                    color: '#F6F4EF',
+                  }}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-[220px] flex items-center justify-center text-parchment/50 text-xs font-mono">
+              No complaint status data yet
+            </div>
+          )}
+        </div>
+
+        {/* Bar Chart: Category Volume */}
+        <div className="dash-card p-6 space-y-4 bg-[#0c1525] border border-parchment/10 rounded-2xl">
+          <h3 className="text-sm font-semibold text-parchment font-display tracking-tight">
+            Complaints by Category
+          </h3>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={barData} barSize={28}>
+              <XAxis dataKey="cat" tick={{ fill: '#C9A468', fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: '#8A9088', fontSize: 11 }} axisLine={false} tickLine={false} width={25} />
+              <Bar dataKey="count" fill="#C9A468" radius={[4, 4, 0, 0]} animationDuration={800} />
+              <Tooltip
+                contentStyle={{
+                  background: '#091120',
+                  border: '1px solid rgba(246,244,239,0.15)',
+                  borderRadius: 8,
+                  fontSize: 12,
+                  color: '#F6F4EF',
+                }}
+                cursor={{ fill: 'rgba(255,255,255,0.03)' }}
+              />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Quick Access CTA */}
+      <div className="dash-card p-6 flex items-center justify-between flex-wrap gap-4 bg-[#0c1525] border border-parchment/10 rounded-2xl">
+        <div>
+          <h4 className="text-sm font-semibold text-parchment">Ready to review active complaints?</h4>
+          <p className="text-xs text-parchment/75 mt-1">
+            Use the comprehensive filtering system to triage, update status, and message residents.
+          </p>
+        </div>
+        <button
+          onClick={onViewAllComplaints}
+          className="btn-brass text-xs py-2 px-5 shadow-md shadow-brass/10"
+        >
+          <span>Manage Complaints Queue</span>
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ─── Complaints Section with Multi-Filters & Pagination ──────────────────────
+interface AdminComplaintsSectionProps {
+  complaintsData: PaginatedComplaints;
+  loading: boolean;
+  filterCategory: string;
+  setFilterCategory: (c: string) => void;
+  filterStatus: string;
+  setFilterStatus: (s: string) => void;
+  filterDateFrom: string;
+  setFilterDateFrom: (d: string) => void;
+  filterDateTo: string;
+  setFilterDateTo: (d: string) => void;
+  onApplyFilters: () => void;
+  onResetFilters: () => void;
+  onPageChange: (p: number) => void;
+  onSelectComplaint: (c: Complaint) => void;
+  onOpenStatusModal: (c: Complaint) => void;
+  onUpdatePriority: (id: number, p: ComplaintPriority) => void;
+  onRefresh: () => void;
+}
+
+const AdminComplaintsSection: React.FC<AdminComplaintsSectionProps> = ({
+  complaintsData,
+  loading,
+  filterCategory,
+  setFilterCategory,
+  filterStatus,
+  setFilterStatus,
+  filterDateFrom,
+  setFilterDateFrom,
+  filterDateTo,
+  setFilterDateTo,
+  onApplyFilters,
+  onResetFilters,
+  onPageChange,
+  onSelectComplaint,
+  onOpenStatusModal,
+  onUpdatePriority,
+  onRefresh,
+}) => {
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="font-display text-parchment text-3xl font-normal" style={{ fontVariationSettings: '"SOFT" 40, "opsz" 32' }}>
+            Complaints Management
+          </h1>
+          <p className="text-sm text-parchment/75 mt-1 font-normal">
+            Showing {complaintsData.items.length} of {complaintsData.total} complaints sorted by overdue priority.
+          </p>
+        </div>
+        <button
+          onClick={onRefresh}
+          className="btn-ghost text-xs py-2 px-3.5 gap-1.5 self-start sm:self-auto hover:bg-white/[0.04]"
+        >
+          <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+          <span>Refresh</span>
+        </button>
+      </div>
+
+      {/* Multi-Criteria Filter Bar */}
+      <div className="dash-card p-5 space-y-4 bg-[#0c1525] border border-parchment/10 rounded-2xl">
+        <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider text-brass font-medium">
+          <Filter size={13} />
+          <span>Multi-Criteria Filters</span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+          {/* Category */}
+          <div>
+            <label className="block text-[11px] font-mono text-parchment/70 uppercase tracking-wider mb-1.5 font-medium">Category</label>
+            <select
+              value={filterCategory}
+              onChange={(e) => setFilterCategory(e.target.value)}
+              className="bg-[#101c30] border border-parchment/20 rounded-lg px-3 py-2 text-xs text-parchment focus:outline-none focus:border-brass w-full font-sans"
+            >
+              <option value="" className="bg-ink">All Categories</option>
+              {CATEGORIES.map((cat) => (
+                <option key={cat} value={cat} className="bg-ink">{cat}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Status */}
+          <div>
+            <label className="block text-[11px] font-mono text-parchment/70 uppercase tracking-wider mb-1.5 font-medium">Status</label>
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="bg-[#101c30] border border-parchment/20 rounded-lg px-3 py-2 text-xs text-parchment focus:outline-none focus:border-brass w-full font-sans"
+            >
+              <option value="" className="bg-ink">All Statuses</option>
+              <option value="Open" className="bg-ink">Open</option>
+              <option value="In Progress" className="bg-ink">In Progress</option>
+              <option value="Resolved" className="bg-ink">Resolved</option>
+            </select>
+          </div>
+
+          {/* Date From */}
+          <div>
+            <label className="block text-[11px] font-mono text-parchment/70 uppercase tracking-wider mb-1.5 font-medium">From Date</label>
+            <input
+              type="date"
+              value={filterDateFrom}
+              onChange={(e) => setFilterDateFrom(e.target.value)}
+              className="bg-[#101c30] border border-parchment/20 rounded-lg px-3 py-1.5 text-xs text-parchment focus:outline-none focus:border-brass w-full font-mono"
+            />
+          </div>
+
+          {/* Date To */}
+          <div>
+            <label className="block text-[11px] font-mono text-parchment/70 uppercase tracking-wider mb-1.5 font-medium">To Date</label>
+            <input
+              type="date"
+              value={filterDateTo}
+              onChange={(e) => setFilterDateTo(e.target.value)}
+              className="bg-[#101c30] border border-parchment/20 rounded-lg px-3 py-1.5 text-xs text-parchment focus:outline-none focus:border-brass w-full font-mono"
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-3 pt-3 border-t border-parchment/8">
+          <button
+            onClick={onResetFilters}
+            className="text-xs text-parchment/70 hover:text-parchment font-mono px-3 py-1.5 rounded hover:bg-white/[0.04] transition-colors"
+          >
+            Reset Filters
+          </button>
+          <button
+            onClick={onApplyFilters}
+            className="btn-brass text-xs py-2 px-4 shadow-sm shadow-brass/10"
+          >
+            Apply Filters
+          </button>
+        </div>
+      </div>
+
+      {/* Complaints Table */}
+      {loading ? (
+        <div className="flex justify-center py-20">
+          <Loader2 size={24} className="text-brass animate-spin" />
+        </div>
+      ) : complaintsData.items.length === 0 ? (
+        <div className="dash-card py-16 text-center space-y-3 bg-[#0c1525] border border-parchment/10">
+          <CheckCircle2 className="w-8 h-8 text-parchment/40 mx-auto" />
+          <h3 className="text-base font-semibold text-parchment">No complaints found</h3>
+          <p className="text-xs text-parchment/70 max-w-sm mx-auto">
+            No maintenance records match your active search filters.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {complaintsData.items.map((c, i) => (
+            <motion.div
+              key={c.id}
+              className={`dash-card p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4 group bg-[#0c1525] border rounded-xl transition-all ${
+                c.is_overdue && c.status !== 'Resolved'
+                  ? 'border-red-500/40 bg-red-500/[0.03]'
+                  : 'border-parchment/10 hover:border-brass/30'
+              }`}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.03, duration: 0.25 }}
+            >
+              {/* Left Details */}
+              <div
+                className="flex-1 min-w-0 cursor-pointer"
+                onClick={() => onSelectComplaint(c)}
+              >
+                <div className="flex items-center gap-2.5 mb-2 flex-wrap">
+                  <span className="font-mono text-xs font-bold text-brass bg-brass/10 border border-brass/20 px-2 py-0.5 rounded">
+                    #{c.id}
+                  </span>
+                  <span className="text-sm font-semibold text-parchment group-hover:text-brass transition-colors tracking-tight">
+                    {c.category}
+                  </span>
+                  {c.resident_name && (
+                    <span className="text-xs text-parchment/75 font-mono">
+                      · Resident: <strong className="text-parchment font-medium">{c.resident_name}</strong>
+                    </span>
+                  )}
+                  {c.photo_url && (
+                    <span className="inline-flex items-center gap-1 text-[11px] text-brass font-mono bg-brass/10 border border-brass/20 px-2 py-0.5 rounded">
+                      Photo Attached
+                    </span>
+                  )}
+                </div>
+
+                <p className="text-xs sm:text-sm text-parchment/85 line-clamp-2 leading-relaxed font-normal">
+                  {c.description}
+                </p>
+
+                <div className="flex items-center gap-3 text-xs font-mono text-parchment/55 mt-2.5">
+                  <span>Filed: {new Date(c.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                  {c.resolved_at && (
+                    <span className="text-emerald-400">· Resolved: {new Date(c.resolved_at).toLocaleDateString('en-IN')}</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Middle Badges & Priority Selector */}
+              <div className="flex items-center gap-3 shrink-0">
+                <StatusBadge status={c.status} isOverdue={c.is_overdue} />
+
+                {/* Priority Selector */}
+                <select
+                  value={c.priority}
+                  onChange={(e) => onUpdatePriority(c.id, e.target.value as ComplaintPriority)}
+                  className="bg-[#101c30] border border-parchment/20 rounded-lg px-2.5 py-1 text-xs text-parchment font-mono focus:outline-none focus:border-brass cursor-pointer"
+                >
+                  {PRIORITIES.map((p) => (
+                    <option key={p} value={p} className="bg-ink">{p}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center gap-2.5 shrink-0 pt-3 lg:pt-0 border-t lg:border-t-0 border-parchment/8">
+                <button
+                  onClick={() => onSelectComplaint(c)}
+                  className="btn-ghost text-xs py-1.5 px-3 gap-1 hover:bg-white/[0.04]"
+                  title="View full ticket details and timeline"
+                >
+                  <Eye size={12} />
+                  <span>View</span>
+                </button>
+
+                {c.status !== 'Resolved' && (
+                  <button
+                    onClick={() => onOpenStatusModal(c)}
+                    className="btn-brass text-xs py-1.5 px-3.5 gap-1 shadow-sm shadow-brass/10"
+                  >
+                    <span>Advance Status</span>
+                  </button>
+                )}
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      )}
+
+      {/* Pagination Controls */}
+      {complaintsData.total_pages > 1 && (
+        <div className="flex items-center justify-between p-4 dash-card text-xs font-mono">
+          <span className="text-slate">
+            Page {complaintsData.page} of {complaintsData.total_pages} ({complaintsData.total} tickets total)
+          </span>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => onPageChange(complaintsData.page - 1)}
+              disabled={complaintsData.page <= 1}
+              className="btn-ghost text-xs py-1.5 px-2.5 disabled:opacity-40"
+            >
+              <ChevronLeft size={14} />
+            </button>
+            <button
+              onClick={() => onPageChange(complaintsData.page + 1)}
+              disabled={complaintsData.page >= complaintsData.total_pages}
+              className="btn-ghost text-xs py-1.5 px-2.5 disabled:opacity-40"
+            >
+              <ChevronRight size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── Notices Section with Posting Form ──────────────────────────────────────
+interface AdminNoticesSectionProps {
+  notices: Notice[];
+  loading: boolean;
+  onNoticeCreated: (n: Notice) => void;
+  onRefresh: () => void;
+}
+
+const AdminNoticesSection: React.FC<AdminNoticesSectionProps> = ({
+  notices,
+  loading,
+  onNoticeCreated,
+  onRefresh,
+}) => {
+  const [title, setTitle] = useState('');
+  const [body, setBody] = useState('');
+  const [isImportant, setIsImportant] = useState(false);
+  const [posting, setPosting] = useState(false);
+
+  const handlePost = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim() || !body.trim()) return;
+
+    setPosting(true);
+    try {
+      const res = await noticesApi.create({
+        title: title.trim(),
+        body: body.trim(),
+        is_important: isImportant,
+      });
+      onNoticeCreated(res);
+      setTitle('');
+      setBody('');
+      setIsImportant(false);
+    } catch {
+      toast.error('Failed to post announcement');
+    } finally {
+      setPosting(false);
+    }
+  };
+
+  return (
+    <div className="space-y-8">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="font-display text-parchment text-3xl font-normal" style={{ fontVariationSettings: '"SOFT" 40, "opsz" 32' }}>
+            Notice Board & Broadcasts
+          </h1>
+          <p className="text-sm text-slate mt-1">
+            Publish society announcements and trigger email notifications to residents.
+          </p>
+        </div>
+        <button onClick={onRefresh} className="btn-ghost text-xs py-2 px-3">
+          Refresh
+        </button>
+      </div>
+
+      {/* New Notice Form */}
+      <div className="dash-card p-6 md:p-8 space-y-4">
+        <h3 className="text-sm font-semibold text-parchment font-display">
+          Create New Society Announcement
+        </h3>
+        <form onSubmit={handlePost} className="space-y-4">
+          <div>
+            <label className="block text-2xs font-mono uppercase tracking-wider text-slate mb-1.5">
+              Notice Title *
+            </label>
+            <input
+              className="input-field"
+              placeholder="e.g. Scheduled Lift Maintenance & Power Backup Window"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-2xs font-mono uppercase tracking-wider text-slate mb-1.5">
+              Notice Content *
+            </label>
+            <textarea
+              className="input-field resize-none h-28 leading-relaxed"
+              placeholder="Provide complete announcement details for residents..."
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="flex items-center justify-between pt-2">
+            <label className="flex items-center gap-2 text-xs text-slate cursor-pointer font-mono select-none">
+              <input
+                type="checkbox"
+                checked={isImportant}
+                onChange={(e) => setIsImportant(e.target.checked)}
+                className="accent-brass w-4 h-4 rounded"
+              />
+              <span>Mark as Important (Sends email alerts to all residents)</span>
+            </label>
+
+            <button
+              type="submit"
+              disabled={posting}
+              className="btn-brass text-xs py-2 px-5"
+            >
+              {posting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  <Send size={14} />
+                  <span>Publish Notice</span>
+                </>
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {/* Notices List */}
+      <div className="space-y-4">
+        <h3 className="text-sm font-semibold text-parchment font-display">
+          Active Announcements ({notices.length})
+        </h3>
+
+        {loading ? (
+          <div className="flex justify-center py-16">
+            <Loader2 size={24} className="text-brass animate-spin" />
+          </div>
+        ) : notices.length === 0 ? (
+          <p className="dash-card text-center py-12 text-xs text-slate">No announcements published yet.</p>
+        ) : (
+          notices.map((n, i) => (
+            <motion.div
+              key={n.id}
+              className={`dash-card p-6 ${
+                n.is_important ? 'border-amber-500/30 bg-amber-500/[0.03]' : ''
+              }`}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.04 }}
+            >
+              <div className="flex items-start justify-between gap-4 mb-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  {n.is_important && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold font-mono bg-amber-500/15 border border-amber-500/30 text-amber-400 uppercase tracking-wider">
+                      <Pin className="w-3 h-3 text-amber-400" />
+                      <span>IMPORTANT NOTICE</span>
+                    </span>
+                  )}
+                  <h4 className="text-sm font-semibold text-parchment">{n.title}</h4>
+                </div>
+                <span className="text-xs text-slate font-mono whitespace-nowrap">
+                  {new Date(n.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                </span>
+              </div>
+
+              <p className="text-xs text-slate/90 leading-relaxed whitespace-pre-wrap">
+                {n.body}
+              </p>
+
+              {n.posted_by_name && (
+                <div className="mt-4 pt-3 border-t border-parchment/6 text-[11px] text-slate flex items-center gap-1.5">
+                  <span>Author:</span>
+                  <strong className="text-parchment font-medium">{n.posted_by_name}</strong>
+                </div>
+              )}
+            </motion.div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ─── Settings Section (Overdue SLA Threshold) ────────────────────────────────
+interface AdminSettingsSectionProps {
+  settings: AdminSettings | null;
+  thresholdDaysInput: number;
+  setThresholdDaysInput: (days: number) => void;
+  savingSettings: boolean;
+  onSave: (e: React.FormEvent) => void;
+}
+
+const AdminSettingsSection: React.FC<AdminSettingsSectionProps> = ({
+  settings,
+  thresholdDaysInput,
+  setThresholdDaysInput,
+  savingSettings,
+  onSave,
+}) => (
+  <div className="max-w-xl mx-auto space-y-6">
+    <div>
+      <h1 className="font-display text-parchment text-3xl font-normal" style={{ fontVariationSettings: '"SOFT" 40, "opsz" 32' }}>
+        SLA & Overdue Configuration
+      </h1>
+      <p className="text-sm text-slate mt-1">
+        Configure the runtime threshold for flagging aging unresolved tickets.
+      </p>
+    </div>
+
+    <div className="dash-card p-6 md:p-8 space-y-6">
+      <div className="p-4 rounded-xl bg-white/[0.02] border border-parchment/8 space-y-2 text-xs">
+        <div className="flex justify-between items-center text-slate">
+          <span>Current Active SLA Threshold:</span>
+          <span className="font-mono font-bold text-brass text-sm">
+            {settings?.overdue_threshold_days ?? 7} days
+          </span>
+        </div>
+        <p className="text-slate/70 leading-relaxed text-[11px]">
+          Any complaint whose status is not <em>Resolved</em> and was created more than this number of days ago will be automatically marked as overdue and prioritized on the queue.
+        </p>
+      </div>
+
+      <form onSubmit={onSave} className="space-y-4">
+        <div>
+          <label className="block text-2xs font-mono uppercase tracking-wider text-slate mb-1.5">
+            Threshold (in Days) *
+          </label>
+          <input
+            type="number"
+            min={0}
+            max={365}
+            value={thresholdDaysInput}
+            onChange={(e) => setThresholdDaysInput(Number(e.target.value))}
+            className="input-field font-mono text-sm"
+            required
+          />
+          <span className="text-[11px] text-slate/60 font-mono mt-1 block">
+            Tip: Set to 0 days to instantly mark all open/in-progress tickets as overdue for testing.
+          </span>
+        </div>
+
+        <button
+          type="submit"
+          disabled={savingSettings}
+          className="btn-brass w-full py-2.5 justify-center text-xs"
+        >
+          {savingSettings ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <>
+              <Save size={14} />
+              <span>Save SLA Configuration</span>
+            </>
+          )}
+        </button>
+      </form>
+    </div>
+  </div>
+);

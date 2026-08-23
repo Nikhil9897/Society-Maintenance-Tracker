@@ -13,10 +13,10 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ requiredRole, ch
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-        <div className="flex flex-col items-center space-y-4">
-          <div className="w-10 h-10 border-4 border-sky-500/20 border-t-sky-500 rounded-full animate-spin"></div>
-          <p className="text-sm text-slate-400 font-medium">Loading session...</p>
+      <div className="min-h-screen bg-ink flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-8 h-8 border-2 border-brass/20 border-t-brass rounded-full animate-spin" />
+          <p className="text-sm text-slate font-mono tracking-wide">Loading session…</p>
         </div>
       </div>
     );

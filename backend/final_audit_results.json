@@ -1,0 +1,77 @@
+{
+  "audit_report": {
+    "1": {
+      "status": "PASS",
+      "evidence": "Complaint #10 created with photo URL '/uploads/4f91e558b861487b819421467e7039e1.png' (HTTP 201); Photo GET returned HTTP 200 (425 bytes, image/png); Admin status patch returned HTTP 200 (status='In Progress'); Admin priority patch returned HTTP 200 (priority='Medium'); Admin notice #8 created (HTTP 201).",
+      "notes": "All input operations verified live."
+    },
+    "2": {
+      "status": "PASS",
+      "evidence": "Complaint #10 history has 2 entries ([Open -> In Progress]); GET /notices returned HTTP 200 with 8 notice(s); DB email_logs table has 1 record(s) for complaint #10: [(114, 'resident1_1787518857@sociosphere.in', 'Your complaint #10 status changed to In Progress', 'failed', 10)].",
+      "notes": "Complaint audit history, notice board, and email log output verified."
+    },
+    "3": {
+      "status": "PASS",
+      "evidence": "Resident registered & authenticated via JWT. Complaint with photo #10 created (HTTP 201). Complaint without photo #11 created (HTTP 201, photo_url=None). Invalid category 'QuantumPhysics' rejected with HTTP 400 (Invalid category 'QuantumPhysics'. Allowed categories: Plumbing, Electrical, Cleanliness, Security, Parking, Other).",
+      "notes": "Photo is truly optional; category enum strictly validated."
+    },
+    "4": {
+      "status": "PASS",
+      "evidence": "GET /complaints/me returned HTTP 200 with 2 items containing #10 and #11. History timestamps strictly ascending (oldest-to-newest: ['2026-08-23T21:00:58.717284', '2026-08-23T21:00:58.809433']). Resident 2 accessing #10 rejected with HTTP 404 (Complaint not found).",
+      "notes": "Full privacy isolation enforced; history correctly sorted."
+    },
+    "5": {
+      "status": "PASS",
+      "evidence": "Category filter returned 4 items (all Plumbing=True); Status filter returned 3 items (all In Progress=True); Future date filter returned total=0 (correctly excluded); Priority updates persisted: Low=True, High=True on fresh GET.",
+      "notes": "Independent filters and priority mutations verified."
+    },
+    "6": {
+      "status": "PASS",
+      "evidence": "Complaint #12 transitioned Open -> In Progress (HTTP 200) -> Resolved (HTTP 200); History has 3 records, all with non-null timestamps; Explicit note stored and retrieved: 'Sanitation supervisor dispatched'; Status change without note succeeded cleanly.",
+      "notes": "Full status lifecycle and audit log recording verified."
+    },
+    "7": {
+      "status": "PASS",
+      "evidence": "Status transition on resolved complaint #12 rejected with HTTP 400 (Complaint is closed. No further status changes are allowed.). Priority update on resolved ticket returned HTTP 200.",
+      "notes": "Resolved is strictly terminal for status changes (HTTP 400). Priority can still be updated/viewed; whether priority should be frozen upon resolution is a design choice."
+    },
+    "8": {
+      "status": "PASS",
+      "evidence": "With threshold=0 days, new complaint #13 shows is_overdue=True. In GET /admin/complaints, top ranked item is #10 with is_overdue=True. After resetting threshold=7 days, fresh complaint #14 shows is_overdue=False.",
+      "notes": "Configurable runtime threshold and top-of-queue sorting fully verified."
+    },
+    "9": {
+      "status": "PASS",
+      "evidence": "Notice B (Important, #10) ranked at index 0 ahead of newer Notice C (Non-important, #11) at index 4. First notice returned has is_important=True.",
+      "notes": "Pinned notices are displayed at the top regardless of creation timestamp."
+    },
+    "10": {
+      "status": "PASS",
+      "evidence": "Complaint #12 status change dispatched 2 email(s) strictly to owner 'resident1_1787518857@sociosphere.in' (recipient isolated); Important Notice #10 dispatched emails to all residents: ['resident@society.com', 'agnikhil9897@gmail.com', 'resident1_1787518312@sociosphere.in', 'resident2_1787518312@sociosphere.in', 'resident1_1787518780@sociosphere.in', 'resident2_1787518780@sociosphere.in', 'resident1_1787518857@sociosphere.in', 'resident2_1787518857@sociosphere.in']; Non-important Notice #11 dispatched 0 emails (no spam generated).",
+      "notes": "Granular email recipient logic fully validated via EmailLog table."
+    },
+    "11": {
+      "status": "PASS",
+      "evidence": "Dashboard Total=14 (DB=14), Open=8 (DB=8), In Progress=3 (DB=3), Resolved=3 (DB=3), Plumbing=4 (DB=4), Electrical=3 (DB=3). Exact match.",
+      "notes": "Single SQL aggregations verified against direct database counts."
+    }
+  },
+  "additional_checks": {
+    "rbac": {
+      "status": "PASS",
+      "evidence": "All 6 admin endpoints returned HTTP 403 to resident token: /admin/dashboard (403), /admin/settings (403), /admin/complaints (403), /complaints/:id/priority (403), /complaints/:id/status (403), /notices [POST] (403)."
+    },
+    "separate_history_table": {
+      "status": "PASS",
+      "evidence": "Table 'complaint_status_history' exists in SQLite schema with columns: ['id', 'complaint_id', 'old_status', 'new_status', 'changed_by', 'note', 'changed_at']."
+    },
+    "upload_validation": {
+      "status": "PASS",
+      "evidence": "Non-image script rejected with HTTP 400 (Invalid image format. Only JPG, PNG, and WebP are allowed.); Oversized 6MB photo rejected with HTTP 400 (File size exceeds the 5MB limit.). No 500 crashes."
+    },
+    "runtime_overdue_config": {
+      "status": "PASS",
+      "evidence": "Admin settings endpoint PATCH /admin/settings updated threshold to 10 days (HTTP 200) and persisted to AppSetting DB table without server restart."
+    }
+  }
+}

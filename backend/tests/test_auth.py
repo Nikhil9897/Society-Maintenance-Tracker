@@ -121,3 +121,24 @@ def test_role_based_access_control(client):
     adm_access_res = client.get("/auth/test-resident", headers=adm_headers)
     assert adm_access_res.status_code == 403
     assert adm_access_res.json()["detail"] == "Resident access required"
+
+
+def test_register_multiple_admins_forbidden(client):
+    # First admin registered successfully
+    admin1_res = client.post("/auth/register", json={
+        "name": "First Admin",
+        "email": "firstadmin@example.com",
+        "password": "pass",
+        "role": "admin"
+    })
+    assert admin1_res.status_code == 201
+
+    # Attempt to register a second admin -> 400 Bad Request
+    admin2_res = client.post("/auth/register", json={
+        "name": "Second Admin",
+        "email": "secondadmin@example.com",
+        "password": "pass",
+        "role": "admin"
+    })
+    assert admin2_res.status_code == 400
+    assert "Only one admin is allowed" in admin2_res.json()["detail"]
