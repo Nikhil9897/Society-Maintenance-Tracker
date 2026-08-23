@@ -12,7 +12,7 @@ The complaint lifecycle is governed by an immutable audit ledger (`ComplaintStat
   * `Complaint` has a 1-to-many relationship with `ComplaintStatusHistory` (`cascade="all, delete-orphan"`, ordered chronologically by `changed_at`).
   * `ComplaintStatusHistory` records `complaint_id` (FK on `complaints.id`), `old_status`, `new_status`, `changed_by` (FK on `users.id`, `ondelete="SET NULL"`), admin `note`, and `changed_at` (UTC timestamp).
 * **FSM Transitions & Immutability**:
-  * Allowed transitions follow a strict linear progression: `Open` $\rightarrow$ `In Progress` $\rightarrow$ `Resolved`.
+  * Allowed transitions follow a strict linear progression: `Open` → `In Progress` → `Resolved`.
   * `Resolved` is terminal: any subsequent transition attempt is rejected with HTTP 400.
   * Creating a complaint automatically writes the genesis entry (`old_status=None`, `new_status=Open`, `note="Complaint raised"`), guaranteeing unbroken auditability from day zero.
 * **Security & Access**: Read access is governed by RBAC (Residents view only their own complaints' audit trails; Admins view all).
@@ -35,11 +35,15 @@ Rather than relying on static database flags or fragile cron-only mutations, ove
   * Stored in the `app_settings` key-value table (`overdue_threshold_days`, default: 7 days).
   * Admins can adjust the threshold dynamically via `PATCH /admin/settings` without server restarts.
 * **Evaluation Logic**:
-  $$\text{is\_overdue} = (\text{status} \neq \text{Resolved}) \land (T_{\text{now\_utc}} - T_{\text{created\_at}} \ge \text{threshold\_days} \times 86400\,\text{s})$$
+  ```python
+  is_overdue = (status != ComplaintStatus.RESOLVED) and (
+      (now_utc - created_at).total_seconds() >= threshold_days * 86400
+  )
+  ```
 * **SQL-Level Triage & Ranking**:
   * Admin complaint list (`GET /admin/complaints`) utilizes an indexed multi-tier SQL `CASE` sorting expression:
     1. **Overdue Status** (`is_overdue = TRUE` ranked first),
-    2. **Priority** (`High` $\rightarrow$ `Medium` $\rightarrow$ `Low`),
+    2. **Priority** (`High` → `Medium` → `Low`),
     3. **Recency** (`created_at DESC`).
 * **KPI Aggregation**: The dashboard computes the aggregate overdue count via a single SQL query (`COUNT(id) WHERE status != 'Resolved' AND created_at <= :cutoff_timestamp`), avoiding $O(N)$ ORM loading.
 
