@@ -47,14 +47,54 @@ def send_email(
     related_notice_id: Optional[int] = None,
 ) -> bool:
     """
-    Send an email via SMTP.
-    Supports standard SMTP and Gmail App Password TLS authentication.
-    Logs any errors and persists an EmailLog entry without raising exceptions.
+    Send an email via HTTPS REST API (Resend) or standard SMTP.
+    - If RESEND_API_KEY is configured: sends via HTTPS (port 443, works 100% on Render Free Tier).
+    - Otherwise: sends via standard SMTP (e.g. Gmail on port 587).
     """
     if not to:
         logger.warning("send_email called without a recipient email address.")
         return False
 
+    # ─── Option 1: Resend HTTPS API (Guaranteed on Render Free Tier) ───
+    resend_key = getattr(settings, "RESEND_API_KEY", None)
+    if resend_key and resend_key.strip():
+        try:
+            import json
+            import urllib.request
+
+            from_email = getattr(settings, "FROM_EMAIL", "onboarding@resend.dev") or "onboarding@resend.dev"
+            req_data = json.dumps({
+                "from": from_email,
+                "to": [to],
+                "subject": subject,
+                "text": body,
+            }).encode("utf-8")
+
+            req = urllib.request.Request(
+                "https://api.resend.com/emails",
+                data=req_data,
+                headers={
+                    "Authorization": f"Bearer {resend_key.strip()}",
+                    "Content-Type": "application/json",
+                    "User-Agent": "SocioSphere/1.0",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=10) as response:
+                if response.status in (200, 201):
+                    logger.info(f"Email successfully sent to {to} via Resend HTTPS [Subject: '{subject}']")
+                    log_email_attempt(
+                        to_email=to,
+                        subject=subject,
+                        status="sent",
+                        related_complaint_id=related_complaint_id,
+                        related_notice_id=related_notice_id,
+                    )
+                    return True
+        except Exception as exc:
+            logger.warning(f"Resend HTTPS failed ({exc}), falling back to standard SMTP.")
+
+    # ─── Option 2: Standard SMTP (Gmail, SendGrid, Mailgun) ───
     host = getattr(settings, "SMTP_HOST", "smtp.example.com")
     port = getattr(settings, "SMTP_PORT", 587)
     user = getattr(settings, "SMTP_USER", "")

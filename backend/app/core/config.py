@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     SMTP_PORT: int = 587
     SMTP_USER: str = "user@example.com"
     SMTP_PASSWORD: str = "your_smtp_password"
+    FROM_EMAIL: str = "onboarding@resend.dev"
+    RESEND_API_KEY: Optional[str] = None
     CLOUDINARY_URL: Optional[str] = "cloudinary://key:secret@cloudname"
     STORAGE_BACKEND: str = "local"
     UPLOAD_DIR: str = "uploads"
