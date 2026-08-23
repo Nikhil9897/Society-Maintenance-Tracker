@@ -455,7 +455,7 @@ const BuildingBlockMesh: React.FC<BuildingBlockMeshProps> = ({
             ? COLORS.brightGold
             : block.isAccent
             ? COLORS.brightGold
-            : 'rgba(232, 228, 220, 0.28)'
+            : '#7E8B9B'
         }
       />
     </mesh>

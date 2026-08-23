@@ -46,15 +46,23 @@ def startup_db_init():
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
 
-# Configure allowed origins (supports comma-separated list or fallback to localhost dev servers)
+# Configure allowed origins
+origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "https://frontend-seven-alpha-48.vercel.app",
+]
 if settings.FRONTEND_URL:
-    origins = [url.strip() for url in settings.FRONTEND_URL.split(",") if url.strip()]
-else:
-    origins = ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000"]
+    for u in settings.FRONTEND_URL.split(","):
+        cleaned = u.strip()
+        if cleaned and cleaned not in origins:
+            origins.append(cleaned)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
+    allow_origin_regex=r"https://.*\.vercel\.app|https://.*\.onrender\.com|http://localhost:\d+|http://127\.0\.0\.1:\d+",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
