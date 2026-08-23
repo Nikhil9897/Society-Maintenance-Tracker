@@ -123,6 +123,8 @@ The database comes pre-populated with realistic historical data, active tickets 
 
 ## 🏗️ System Architecture
 
+> 📄 **Deep Dive**: For a focused technical write-up on the Complaint History Model, Dynamic Overdue Detection, Dual Photo Storage, and Multi-Channel Notification Pipeline, see the [System Design Document](docs/SYSTEM_DESIGN.md).
+
 ### High-Level Architecture Pipeline
 
 ```mermaid
